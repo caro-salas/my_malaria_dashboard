@@ -1,0 +1,523 @@
+---
+title: "MALARIA | DEATHS & CASES 2020"
+format: dashboard
+theme: slate  
+---
+
+```{r}
+# Load packages - all necessary for the quarto file to render properly
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse,
+               bslib,
+               bsicons,
+               shiny,
+               rnaturalearth,
+               plotly,
+               countrycode,
+               htmltools,
+               reactable,
+               readr,
+               tidyr,
+               here,
+               readxl,
+               gganimate,
+               viridis)
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+# This section is devoted to download and clean the data required for the project
+# DATA 1 - deaths caused by malaria
+mal_deaths <- read_xlsx(here("data/wmr2024_mal_deaths.xlsx"))
+
+# Function to clean variable names 
+clean_names <- function(names) { 
+  names <- str_remove_all(names, "[0-9,()]") 
+  names <- str_squish(names) 
+  names <- str_to_title(names) 
+  return(names) } 
+
+# Apply the cleaning function 
+mal_deaths$country<- clean_names(mal_deaths$country)
+  
+# Print the cleaned variable names 
+print(clean_names)
+
+# Pivot the data to a longer format - best format for data analysis
+deaths_long_data <- pivot_longer(mal_deaths, 
+                          cols = starts_with("20"), 
+                          names_to = "year",
+                          values_to = "cases") 
+
+# Print the long format data for verification.
+print(deaths_long_data)
+
+#filter variables to be used
+deaths_2020 <- deaths_long_data %>%
+filter( year == 2020) %>% 
+mutate(cases = as.numeric(na_if(cases, "-"))) 
+
+# verify if the variable type ws changed
+glimpse(deaths_2020)
+
+## THI CODE Is TO SELECT THE COUNTRY WITH THE HIGHEST NUMBER OF DEATHS IN AMERICAS
+# Select the country from the Americas with the highest number of deaths 
+
+highest_deaths <- deaths_2020 %>% 
+filter(!is.na(cases)) %>% 
+arrange(desc(cases)) %>% 
+head(1) %>% 
+pull(country) 
+
+# Print the highest number of deaths and the corresponding country name 
+print(highest_deaths)
+  
+highest_deaths_world_value <-
+deaths_2020 %>%
+arrange(-cases) %>%
+head(1) %>%
+pull(cases)
+
+highest_deaths_latam <- deaths_2020 %>% 
+filter(who_region == "AMERICAS") %>% 
+filter(!is.na(cases)) %>% 
+arrange(desc(cases)) %>% 
+head(1) %>% 
+pull(country) 
+
+highest_deaths_value <-
+deaths_2020 %>%
+filter(who_region == "AMERICAS") %>% 
+arrange(-cases) %>%
+head(1) %>%
+pull(cases)
+
+lowest_deaths_latam <- deaths_2020 %>% 
+# Filter for the Americas region 
+filter(who_region == "AMERICAS", cases>0) %>% 
+# Replace "-" with NA and convert to numeric 
+# Filter out NA values 
+filter(!is.na(cases)) %>% 
+# Arrange in descending order of cases 
+arrange(desc(cases)) %>%
+# Pull the country with the lowest number of cases 
+tail(1) %>% 
+pull(country) 
+
+lowest_deaths_value <-
+deaths_2020 %>%
+filter (cases>0) %>% 
+arrange(cases) %>%
+head(1) %>%
+pull(cases) 
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+# Convert cases to numeric, to be able to manipulate the data.
+deaths_long_data$cases <- as.numeric(deaths_long_data$cases)
+
+# Create the plot with specified colors
+deaths_plot <- deaths_long_data %>%
+  filter(year == 2020, cases >= 0) %>%
+  arrange(desc(cases)) %>%
+  head(20) %>%
+  mutate(tooltip_label = paste(country, cases, sep = ": ")) %>%
+  ggplot(aes(x = cases, y = reorder(country, cases), 
+             fill = cases,
+             text = tooltip_label)) + 
+  geom_col() + 
+  geom_text(aes(label= cases), nudge_x = -1, color= "black", hjust = 1) +
+  labs(y = " ", x = "Cases") +
+  theme(legend.position = "none") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") # Adjust colors here
+
+# Convert the plot to an interactive plot with plotly
+top_20_countries_deaths <- ggplotly(deaths_plot, tooltip = "text")
+
+# Print the interactive plot
+top_20_countries_deaths
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+# Generate an interactive graph - for information
+country_shapes <- rnaturalearth::ne_countries()
+# Create a new column 'country_code' in my database
+
+mal_deaths <- deaths_long_data %>% 
+  mutate(
+    country_code = countrycode(country, 
+                              "country.name", 
+                              "iso3c")) 
+malaria_map<- mal_deaths %>% 
+  filter(year ==2020)
+
+# Verify the potential differences that might appear in my data after adding the country_code , this are the differences that are few and I will ignore [1] "CPV" "COM" "MYT" "STP" "SSD" NA    "GUF"
+
+setdiff(malaria_map$country_code, country_shapes$adm0_a3)
+
+# note: do not run this as this will appear in the dashboard we are creating.
+#  As the differences are not major I will proceed to Join 'country_shapes' with 'malaria_deaths' 
+
+deaths_map<- left_join(country_shapes, malaria_map, by = c("adm0_a3" = "country_code")) %>% 
+  mutate(tooltip_label = paste (country, cases)) %>% 
+  
+  ggplot() + 
+    geom_sf(aes(fill=cases, text = tooltip_label), color = "lightgray")+
+    scale_fill_viridis_c(option = "C") +
+    theme_void ()+
+    theme(legend.position = "none")
+
+# Convert ggplot to plotly object
+
+deaths_map_ggplotly <- ggplotly(deaths_map, tooltip = "text") 
+
+# Print the plotly object to visualize
+deaths_map_ggplotly
+```
+# WORLWIDE vs AMERICAS - DEATHS
+
+## Row 1 {height=30%}
+``` {r}
+value_box(
+  title = "Highest Number of deaths year 2020",
+  value = highest_deaths_world_value,
+  showcase = bsicons::bs_icon("globe-europe-africa"),
+  theme = value_box_theme(bg= "darkblue"),
+  p(paste0("(",  highest_deaths, ")"))
+)
+
+```
+
+``` {r}
+value_box(
+  title = "Highest Number of deaths-Americas",
+  value = highest_deaths_value,
+  showcase = bsicons::bs_icon("globe-americas"),
+  theme = value_box_theme(bg= "#4c34eb"),
+  p(paste0("(",  highest_deaths_latam, ")"))
+)
+
+```
+
+```{r}
+value_box(
+  title = "Lowest Number of deaths-Americas",
+  value = lowest_deaths_value ,
+  showcase = bsicons::bs_icon("globe-americas"),
+  theme = value_box_theme(bg= "#6c45b0"),
+  p(paste0("(",  lowest_deaths_latam , ")"))
+)
+```
+
+## Row 2 {height=75%}
+### {width=40%}
+
+```{r title = "Top 20 Countries with Highest Deaths  Caused by Malaria"}
+top_20_countries_deaths 
+```
+
+
+### {width=60%}
+```{r title = "Map of Deaths Caused by Malaria"}
+deaths_map_ggplotly
+```
+
+
+```{r results='hide', message=FALSE, warning = FALSE}
+# This section is devoted to download and clean the data required for the project
+# DATA 2 - deaths caused by malaria
+
+mal_case_spe <- read_xlsx(here("data/wmr2024_mal_case_specie.xlsx"))
+
+# Function to clean country names
+clean_names <- function(names) { 
+  names <- str_remove_all(names, "[0-9,()]")  # Remove numbers, commas, and parentheses
+  names <- str_squish(names)                 # Remove extra spaces
+  names <- str_to_title(names)               # Convert to title case
+  return(names)
+} 
+
+# Apply the cleaning function to country names
+mal_case_spe$country <- clean_names(mal_case_spe$country)
+View (mal_case_spe)
+
+# Fill down missing country names
+mal_case_spe <- mal_case_spe %>% 
+  fill(country, .direction = "down")
+View (mal_case_spe)
+
+# Pivot the data to a longer format
+mal_case_spe_long_data <- mal_case_spe %>% 
+  pivot_longer(
+    cols = `2015`:`2023`,  # Columns to pivot (years)
+    names_to = "year",     # New column for years
+    values_to = "cases"    # New column for case values
+  )
+
+# Clean the cases variable by removing unwanted characters
+mal_case_spe_long_data$cases <- gsub("[+\\-`*~]", "", mal_case_spe_long_data$cases)
+View(mal_case_spe_long_data)
+
+# Filter and prepare the dataset for 2020 cases in the Americas
+mal_case_spe_2020 <- mal_case_spe_long_data %>% 
+  mutate(cases = as.numeric(na_if(cases, "-"))) %>%  # Replace "-" with NA and convert to numeric
+  filter(year == 2020, who_region == "AMERICAS")
+
+# this time I need to find the highest number of cases for this data #3
+glimpse (mal_case_spe_2020)
+
+highest_case_pf_latam <- mal_case_spe_2020 %>% 
+  # Replace "-" with NA and convert cases to numeric
+  # Filter for "Total P. falciparum" species
+  filter(species == "Total P. falciparum") %>% 
+  # Arrange in descending order of cases
+  arrange(desc(cases)) %>% 
+  # Select the top row
+  slice(1) %>% 
+  # Select only the country and cases columns
+  pull(country, cases)
+# Print the highest number of deaths and the corresponding country name 
+  print(highest_case_pf_latam)
+  
+
+highest_case_pf_latam_value  <-
+mal_case_spe_2020 %>%
+filter(species == "Total P. falciparum") %>% 
+arrange(-cases) %>%
+head(1) %>%
+pull(cases)
+print (highest_case_pf_latam_value)
+
+
+lowest_case_pf_latam <- mal_case_spe_2020 %>% 
+# Replace "-" with NA and convert cases to numeric
+# Filter for "Total P. falciparum" species in the Americas region
+filter(species == "Total P. falciparum", cases > 0) %>% 
+# Arrange in ascending order of cases
+arrange(cases) %>% 
+# Select the top row
+head(1) %>% 
+# Select only the country and cases columns
+pull(country, cases)
+print (lowest_case_pf_latam )
+
+
+# Extract the lowest cases country and cases value
+lowest_case_pf_latam_value <- mal_case_spe_2020 %>% 
+# Replace "-" with NA and convert cases to numeric
+# Filter for "Total P. falciparum" species in the Americas region
+filter(species == "Total P. falciparum", cases > 0) %>% 
+# Arrange in ascending order of cases
+arrange(cases) %>% 
+# Select the top row
+head(1) %>% 
+# Select only the country and cases columns
+pull(cases)
+
+
+highest_case_pv_latam <- mal_case_spe_2020 %>% 
+# Replace "-" with NA and convert cases to numeric
+# Filter for "Total P. vivax" species
+filter(species == "Total P. vivax") %>% 
+  # Arrange in descending order of cases
+arrange(desc(cases)) %>% 
+# Select the top row
+slice(1) %>% 
+# Select only the country and cases columns
+pull(country, cases)
+# Print the highest number of deaths and the corresponding country name 
+print(highest_case_pv_latam)
+  
+highest_case_pv_latam_value <-
+mal_case_spe_2020 %>%
+filter(species == "Total P. vivax") %>% 
+arrange(-cases) %>%
+head(1) %>%
+pull(cases)
+
+lowest_case_pv_latam <-
+mal_case_spe_2020 %>%
+filter(who_region == "AMERICAS", species == "Total P. vivax", cases >0) %>% 
+arrange(cases) %>%
+head(1) %>%
+pull(country)
+print(lowest_case_pv_latam)
+  
+lowest_case_pv_latam_value <-
+mal_case_spe_2020 %>%
+filter(who_region == "AMERICAS", species == "Total P. vivax", cases >0) %>% 
+arrange(cases) %>%
+head(1) %>%
+pull(cases)
+print(lowest_case_pv_latam_value)
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+#This is the graphic for the 10 top countries with most malaria cases by P. falciparum species
+ 
+mal_case_spe_long_data$cases <- as.numeric(mal_case_spe_long_data$cases)
+
+mal_case_plot_f<- mal_case_spe_long_data %>% 
+filter(year == 2020, cases >= 0, who_region == "AMERICAS", species == "Total P. falciparum") %>%   arrange(desc(cases)) %>% 
+head(10) %>% 
+mutate(tooltip_label = paste(country, cases,
+                               sep = ": ")) %>% 
+ggplot(aes(x = cases, y = reorder(country, cases), 
+             fill = cases,
+             text = tooltip_label)) + 
+geom_col() + # Ensures all bars have the same size 
+geom_text(aes(label= cases), nudge_x = -1, color= "black", hjust =1) +
+labs(y = " ", 
+     x = "Cases") +
+theme(legend.position = "none")+
+scale_fill_gradient(low = "lightblue", high = "darkblue") # Adjust colors here
+
+top_10_countries_mal_case_f <-
+ggplotly(mal_case_plot_f, tooltip = "text")
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+#This is the graphic for the 10 top countries with most malaria cases by P. vivax  species
+ 
+mal_case_spe_long_data$cases <- as.numeric(mal_case_spe_long_data$cases)
+
+mal_case_plot_v<- mal_case_spe_long_data %>% 
+filter(year == 2020, cases >= 0, who_region == "AMERICAS", species == "Total P. vivax") %>% 
+arrange(desc(cases)) %>% 
+head(10) %>%
+  
+mutate(tooltip_label = paste(country, cases,
+                               sep = ": ")) %>% 
+ggplot(aes(x = cases, y = reorder(country, cases), 
+             fill = cases,
+             text = tooltip_label)) + 
+geom_col() + # Ensures all bars have the same size 
+geom_text(aes(label= cases), nudge_x = -1, color= "black", hjust =1) +
+labs( title =  ,
+       y = " ", 
+       x = "Cases") +
+theme(legend.position = "none")+
+scale_fill_gradient(low = "lightblue", high = "darkblue") # Adjust colors here
+
+top_15_countries_mal_case_v <-
+ggplotly(mal_case_plot_v, tooltip = "text")
+```
+
+# AMERICAS - CONFIRMED CASES 
+
+## Row 1 {height=30%}
+``` {r}
+value_box(
+  title =  "Highest Pf cases-Americas",
+  value = highest_case_pf_latam_value,
+  showcase = bsicons::bs_icon("graph-up-arrow"),
+  theme = value_box_theme(bg= "#548be3") ,
+  p(style = "font-size: 12px;",paste0("(",  highest_case_pf_latam, ")"))
+)
+```
+
+
+``` {r}
+value_box(
+  title = "lowest Pf cases-Americas",
+  value = lowest_case_pf_latam_value,
+  showcase = bsicons::bs_icon("graph-down-arrow"),
+  theme = value_box_theme(bg= "#548be3"),
+  p(paste0("(",  lowest_case_pf_latam, ")"))
+)
+```
+
+```{r}
+value_box(
+  title = "Highest case Pv-Americas",
+  value = highest_case_pv_latam_value,
+  showcase = bsicons::bs_icon("graph-up-arrow"),
+  theme = value_box_theme(bg= "#6c45b0"),
+   p(paste0("(",  highest_case_pv_latam, ")"))
+)
+```
+
+```{r}
+value_box(
+  title = "Lowest case Pv-Americas",
+  value =  lowest_case_pv_latam_value,
+  showcase = bsicons::bs_icon("graph-down-arrow"),
+  theme = value_box_theme(bg= "#6c45b0"),
+  p(paste0("(",lowest_case_pv_latam, ")"))
+)
+```
+
+
+## Row 2 {height=50%}
+```{r title= "Top 10 Countries by Plasmodium  falciparum  malaria cases"}
+top_10_countries_mal_case_f 
+```
+
+### {width=50%}
+
+```{r title= "Top 10 Countries by Plasmodium vivax malaria cases"}
+top_15_countries_mal_case_v 
+```
+
+
+# DOWNLOAD DATA
+```{r}
+# Load the datasets
+malaria_deaths <- read_excel(here("data/wmr2024_mal_deaths.xlsx"))
+
+mal_case_spe <- read_excel(here("data/wmr2024_mal_case_specie.xlsx"))
+
+# Read the Excel files, the main and the additional, key point was to assign a data base name previously generated as part of the analysis
+malaria_deaths <- read_excel(here("data/wmr2024_mal_deaths.xlsx"))
+mal_case_spe <- read_excel(here("data/wmr2024_mal_case_specie.xlsx"))
+
+# Create a Quarto dashboard layout with two interactive tables, this code will add the second data set to the first one as additional file
+htmltools::browsable(
+  tagList(
+    # Display Malaria Data Table
+    div(
+      h3("Malaria deaths"),
+      reactable(
+        malaria_deaths, 
+        elementId = "malaria-deaths", 
+        searchable = TRUE, 
+        filterable = TRUE
+      ),
+      tags$button("Download Malaria Data as CSV", onclick = "Reactable.downloadDataCSV('malaria-deaths')")
+    ),
+    br(), # Add spacing
+    # Display Additional Data Table
+    div(
+      h3("Malaria cases"),
+      reactable(
+        mal_case_spe, 
+        elementId = "mal-case-spe", 
+        searchable = TRUE, 
+        filterable = TRUE
+      ),
+      tags$button("Download Malaria Data as CSV", onclick = "Reactable.downloadDataCSV('mal-case-spe')")
+    )
+  )
+)
+
+```
+
+# ABOUT
+**Malaria Deaths and Cases in 2020: A Comprehensive Analysis**
+
+This dashboard presents an in-depth analysis of malaria-related deaths in the year 2020, the onset of the COVID-19 pandemic.
+ 
+The data, sourced from the 2024 Malaria World Report released in December 2024, is available for download directly from the [World Health Organization](https://www.who.int/teams/global-malaria-programme/reports/world-malaria-report-2024). Our interactive visualizations and key statistics are drawn from two primary databases: regional and country-specific death numbers, and case counts by two species.
+
+**Key Insights:**
+
+1. **Highest Malaria Deaths by Country:**
+- The African nation of the Democratic Republic of Congo reported the highest number of malaria deaths, with 18,636 fatalities.
+- Focusing on the Americas, Brazil had the highest number of deaths, with 51 fatalities, while Peru reported the lowest number of deaths.
+
+2. **Confirmed Malaria Cases by Species in the Americas:** 
+- For *Plasmodium falciparum* cases, Brazil recorded the highest number with 39,879 cases, while Costa Rica had the lowest.
+- For *Plasmodium vivax* cases, Venezuela topped the chart with 151,783 cases, and Costa Rica reported the lowest number, with 88 cases.
+
+
+
+
